@@ -1,0 +1,25 @@
+
+{
+    "bot-name": "HAIKO-XMD",
+    "description": "HAIKO XMD simple by ᴘʀɪɴᴄᴇ xᴛʀᴇᴍᴇ",
+    "logo": "https://files.catbox.moe/2rgdc4.jpg",
+    "keywords": ["bot"],
+    "documentation-link": "https://haiko-auth.onrender.com",
+    "owner-verification":"pxtreme86@gmsil.com",
+  
+    "env": {
+      "SESSION_ID": {
+        "description": "Put your SESSION_ID here. Make sure it starts with HSIKO~MDX~ or get session id from here, https://haiko-auth.onrender.com",
+        "value":"",
+        "required": true
+        
+      },
+      "OWNER_NUMBER": {
+        "description": "Owner number ",
+        "value":"529633982655",
+        "required": true
+        
+      }
+    }
+  
+}
