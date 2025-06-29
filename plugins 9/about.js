@@ -36,7 +36,7 @@ await conn.sendMessage(from, {
         isForwarded: true,
         forwardedNewsletterMessageInfo: {
             newsletterJid: '120363398101781980@newsletter', // ou ton JID actuel
-            newsletterName: '𝐇𝐀𝐈𝐊𝐎-𝐌𝐃𝐗 𝐕𝟐',
+            newsletterName: '𝗛𝗔𝗜𝗞𝗢 𝗫𝗠𝗗',
             serverMessageId: 143
         }
     }
