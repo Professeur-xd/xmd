@@ -21,6 +21,7 @@ cmd(
     desc: 'Convert GIF/Video to a sticker.',
     category: 'convert',
     use: '<reply media or URL>',
+    react: "🔮",
     filename: __filename,
   },
   async (conn, mek, m, { quoted, args, reply }) => {
