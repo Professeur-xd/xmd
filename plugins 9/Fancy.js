@@ -8,10 +8,11 @@ cmd({
   desc: "Makes stylish/fancy given text",
   category: "converter",
   use: "56 Asta",
+  react: "✍🏻",
   filename: __filename
 }, async (_0x230c03, _0x3b568a) => {
   try {
-    let _0x365550 = "┏━━━━━━━━━━━━━━━━━━━━━━━━\n┃\t*💬 HAIKO-XMD-FANCY-TEXT💬* \n┗━━━━━━━━━━━━━━━━━━━━━━━━\n\n " + (_0x3b568a ? "```🔢Reply the number you wants to select``` \n\n" : "```\t\t" + "fancy XBOT(For all text)\n\t\t" + "fancy 25 XTREME(For specific text)```\n\n");
+    let _0x365550 = "╭⭑━━━━━➤\n┃\t*FANCY STYLE* \n╰━━━━❑━⪼\n\n " + (_0x3b568a ? "```🔢Reply the number you wants to select``` \n\n" : "```\t\t" + "fancy HAIKO-XMD(For all text)\n\t\t" + "fancy 25 XTREME(For specific text)```\n\n");
     let _0x50c7d9 = parseInt(_0x3b568a);
     if (isNaN(_0x50c7d9)) {
       let _0x4ca942 = _0x3b568a ? _0x3b568a : "HAIKO-XMD";
