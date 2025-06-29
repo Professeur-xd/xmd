@@ -16,6 +16,7 @@ cmd(
         desc: 'Create a sticker with a custom pack name.',
         category: 'convert',
         use: '<reply media or URL>',
+        react: "👨🏻‍💻",
         filename: __filename,
     },
     async (conn, mek, m, { quoted, args, q, reply, from }) => {
@@ -52,6 +53,7 @@ cmd(
         desc: 'Create a sticker from an image, video, or URL.',
         category: 'convert',
         use: '<reply media or URL>',
+        react: "👩🏻‍🔬",
         filename: __filename,
     },
     async (conn, mek, m, { quoted, args, q, reply, from }) => {
